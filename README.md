@@ -1,142 +1,119 @@
-# Red Alert 2 and Yuri's Revenge — Static Recompilation
+# Red Alert 2 on macOS
 
-**[⬇ Download the installer](https://github.com/sp00nznet/redalert2-recomp/releases)**: Windows, Linux and macOS. You need your own copy of the game.
+Native macOS / Apple Silicon builds of **Command & Conquer: Red Alert 2**
+and **Yuri's Revenge**, based on
+[sp00nznet/redalert2-recomp](https://github.com/sp00nznet/redalert2-recomp).
+The original x86 game code is statically recompiled to C and built as a native
+host. A compatible, legally owned Windows game installation is required.
 
-Static recompilation of **Command & Conquer: Red Alert 2** (Westwood Studios,
-2000) and its expansion **Yuri's Revenge** (2001) from their shipping Win32
-binaries, `game.exe` 1.006 and `gamemd.exe` 1.001, to native C. Both games
-build from the same install, each into its own `ra2.exe`, with the same
-remaster: the one the first two C&C games got and this engine never did, built
-on the game's own code rather than a reimplementation.
+This fork adds display refresh settings, right-button map dragging and
+Simplified Chinese support. The matching modified pcrecomp toolkit is included
+in `third_party/pcrecomp`, so a separate toolkit clone is unnecessary.
+Upstream installers/releases do not contain this fork's changes.
 
-Built on the [pcrecomp](https://github.com/sp00nznet/pcrecomp) toolchain.
-Tiberian Sun and Firestorm, the same engine's first games, are recompiled the
-same way in [tiberiansun-recomp](https://github.com/sp00nznet/tiberiansun-recomp).
-This is not [OpenRA](https://www.openra.net/), a separate engine that
-reimplements the rules: this runs Westwood's own code, recompiled.
+## Features
 
-![Main menu](docs/screenshots/main-menu.png)
+- Fullscreen: **F11**, **Option+Return**, or **Control+Command+F**.
+- **F10 → Display refresh**: automatic, 60, 120, 144 or 240 Hz presentation
+  ceilings. Fractional deadlines avoid the old 15 ms display limiter.
+- The original simulation timing and game-speed slider are preserved.
+  The highest original single-player speed can run uncapped. Raising the display
+  ceiling does not interpolate unit animation or guarantee that many new frames.
+- **F10 → Right mouse button → Original / Drag map**. Drag mode is the default.
+  Terrain follows the pointer: drag left to move the picture left, and up to
+  move it up. A stationary pointer or released button stops panning. Short right
+  clicks retain their original action; menus and the sidebar retain normal input.
+- Optional Simplified Chinese game text/fonts and a Chinese F10 menu.
+  Original English audio and cinematic assets are retained.
+- Steam executable icons stored as PNG resources are supported by the macOS packager.
 
-## What the remaster adds
+## Build from your own game
 
-- **Its own window**: a Direct3D 11 presenter, resizable or borderless
-  fullscreen (F11, Alt+Enter), sharp at any size and on high-DPI screens.
-- **Scaling** (F12): sharp-bilinear by default, smooth, CRT, nearest, or whole
-  multiples only.
-- **A settings menu** (F10, or right-click beside the picture): scaling,
-  fullscreen, HD vehicles, the bars beside the 4:3 menus, the game's
-  resolution and mods, without editing an INI.
-- **High resolution and widescreen**: 1280x720 up to 3840x2160, more of the
-  battlefield on screen ([hires.md](docs/hires.md)).
-- **HD vehicles**: units, their shadows and aircraft drawn at twice (or three
-  times) the resolution from the game's own voxel models, at no cost in frame
-  time; or *1x smooth*, antialiasing the units at the game's own size
-  ([voxels.md](docs/voxels.md)).
-- **Modern controls** (F10): left-click to select, right-click to order, and
-  Shift-click a build icon to queue five ([modern-controls.md](docs/modern-controls.md)).
-- **Mods**: a folder in `mods/`, laid over the game's without changing it,
-  switched in game ([mods/README.md](mods/README.md)).
-- **LAN multiplayer**, RA2 against RA2, as shipped (IPXEmu).
-- **Windows, Linux and macOS**, natively on all three: no Wine, and no
-  Visual C++ redistributable to install. It also runs under Wine and CrossOver.
+Use the Windows files from the Steam or EA release, including `game.exe`
+(RA2 1.006), `gamemd.exe` (YR 1.001), and their accompanying data. A game folder
+copied from an existing Windows installation also works. This repository
+contains no retail executables, MIX archives, keys or generated game C.
 
-`--classic` gives the original display, and `--original` runs the shipping
-machine code for comparison.
+On macOS, install Xcode Command Line Tools and Homebrew, then:
 
-## Getting Started
+```sh
+git clone https://github.com/M1p0/redalert2-macos.git
+cd redalert2-macos
+./setup.sh --game-dir "/path/to/your/RedAlert2"
+```
 
-You need **your own copy**: the Steam or EA App (Origin) build of *Command &
-Conquer: Red Alert 2 and Yuri's Revenge*, the folder holding `game.exe` and
-`gamemd.exe`. Nothing from the game is in this repository or downloaded for
-you; everything is built on your machine from your copy.
+Setup checks dependencies, analyzes and recompiles both games, and builds native
+launchers. It asks before installing missing tools. The initial analysis/build
+is substantial; see [the build guide](docs/building.md) for the individual steps.
+`PCRECOMP` can explicitly select another toolkit; the included version is the
+one tested with this fork.
 
-### The installer (easiest)
+Package double-clickable apps after building:
 
-1. Download the one for your system from the
-   **[latest release](https://github.com/sp00nznet/redalert2-recomp/releases)**:
-   `RA2-Recomp-Installer-windows-x64.exe`, `-linux-x64.tar.gz` or
-   `-macos-arm64.zip`.
-2. Open it. It finds your game in Steam or the EA App, or you point it at the folder.
-3. Press **Build my recomp**, and when it's done, **Play**.
+```sh
+.venv/bin/python tools/package_macos.py --build-dir build-macos-game --out dist/ra2
+.venv/bin/python tools/package_macos.py --build-dir build-macos --out dist/yr
+```
 
-The first build takes 30 to 60 minutes and about 6 GB; it installs the tools
-it needs (on Windows, Visual Studio's Build Tools, asking for permission
-once). The installers aren't signed yet: on Windows, SmartScreen asks first
-(**More info**, then **Run anyway**); on a Mac, right-click it and pick **Open**.
+The apps bundle their native libraries and ask for your game folder on first
+launch. Their minimum macOS version depends on the bundled libraries; the local
+Apple Silicon packages were tested on macOS 27.0.1 and require macOS 27.0.
+They are ad-hoc signed and not notarized. Other macOS versions and Intel Macs
+have not been validated for this fork.
 
-### The setup scripts
+## Optional Simplified Chinese
 
-1. Download this repository (the green **Code** button, then **Download ZIP**)
-   and unzip it somewhere with 6 GB free.
-2. Windows: double-click **`Setup.cmd`**. Linux and macOS: `./setup.sh`.
-3. Play with `Yuri's Revenge (recomp)` or `Red Alert 2 (recomp)` in that folder.
+The translation project is
+[Translate-with-LOVE/Ra2-zh_hans-main](https://github.com/Translate-with-LOVE/Ra2-zh_hans-main),
+pinned to `f09640b65b8540c2cf3fe779ee2cc0e0a4fc15f2`.
+Translation assets are obtained separately and retain their original rights.
+The helper verifies SHA-256 hashes, compiles CSF strings and backs up replaced
+files before installing. Choose your own cache and a **new** backup directory:
 
-The script asks before installing anything, finds the game, and catalogs,
-lifts and builds both games; a rerun skips finished steps. Building by hand,
-each platform's details, Wine and the command line are in
-**[docs/building.md](docs/building.md)**.
+```sh
+python3 tools/install_zh_hans.py --game "/path/to/your/RedAlert2" \
+  --cache-dir "/path/to/localization-cache" \
+  --backup-dir "/path/to/new-localization-backup"
+```
 
-In the game: F10 settings, F11 fullscreen, F12 scaling, F9 mods at the main
-menu (Linux and macOS). On a Mac hold fn for the F keys, and use Option+Return
-for fullscreen.
+This downloads text and the game font. For the complete five-file overlay pack
+(including the separately built Chinese cameo artwork), use
+`--pack-dir "/path/to/pack"` instead of `--cache-dir`; hashes must match the
+verified pack. The expected hashes are listed in the helper. No audio is replaced.
+The packaged launcher detects the installer's provenance marker and uses Chinese
+F10 labels with an available macOS system CJK font. Set `RA2_UI_LANGUAGE=en` to
+keep that native menu in English.
 
-## Status
+Backups preserve each previous filename and contain `restore.json`. To undo,
+restore entries marked `true` from the backup to the listed game path, and remove
+only the newly installed entries marked `false`. Keep the backup until verified.
 
-**v0.1.0, playable.** Both games lift with 0 errors and play: the
-intro, every menu, skirmishes from setup to the score screen, and both
-campaigns, 720p to 4K. A scripted playtest suite checks it: 30 of 30 for each
-game on Windows, natively on Linux and macOS.
+## Settings and validation
 
-| | Yuri's Revenge | Red Alert 2 |
-|---|---|---|
-| Functions found | 24,940 (91.8% of the code) | 23,191 |
-| Lifted to C | 24,954, 0 errors | 23,201, 0 errors |
-| Playtest suite | 30 of 30 | 30 of 30 |
+Packaged apps save display/input preferences outside the app bundle:
+`~/Library/Application Support/Red Alert 2 Recomp/ra2-present.ini` or
+`yr-present.ini`. Game INIs and saves remain in the game folder.
+See [presenter details](docs/presenter.md) for command-line overrides and timing
+measurements. Normal play does not require test flags such as `--headless`,
+`--mute`, `--record` or `--watchdog`.
 
-[bringup.md](docs/bringup.md) is the log of each wall and its fix, and
-[ROADMAP.md](ROADMAP.md) what comes next.
+Validated locally with both Steam games on Apple Silicon:
 
-## Screenshots
+- Entering a skirmish with Simplified Chinese text and fonts.
+- Four drag directions, exact pixel camera deltas, stationary holds and releases.
+- Switching and saving Original / Drag map in the Chinese F10 menu.
+- Display-deadline checks at 30, 60, 120, 144 and 240 Hz, including stall recovery.
+- Packaging, dynamic-library signing verification and a normal app launch.
 
-Recorded headlessly by the recompiled game. The standout feature is **HD
-vehicles** -- the renderer draws voxel units (tanks, aircraft, ships) at two
-or three times their size. The same Grizzly tank at 1x, 2x and 3x:
+`tools/playtest.py skirmish-mapdrag` exercises the actual game scroll routine.
+The small source-only checks run in [GitHub Actions](.github/workflows/checks.yml);
+they do not claim full game or campaign coverage.
 
-![HD vehicles at 1x, 2x and 3x](docs/screenshots/hd-voxels-scales.png)
+## Credits and license
 
-An Allied base in a skirmish, HD vehicles drawn at 3x:
-
-![HD vehicles in battle](docs/screenshots/hd-battle.png)
-
-| | |
-|---|---|
-| ![HD aircraft and ships](docs/screenshots/hd-aircraft.png) | ![HD shadows](docs/screenshots/hd-shadows.png) |
-| ![Skirmish](docs/screenshots/skirmish-units.png) | ![Allied campaign](docs/screenshots/campaign-allied.png) |
-
-A few more from the campaign and menus: the [Westwood logo](docs/screenshots/westwood-logo.png),
-the [White House](docs/screenshots/white-house.png), the [situation room](docs/screenshots/situation-room.png),
-the [Alcatraz briefing](docs/screenshots/alcatraz-briefing.png), [Yuri](docs/screenshots/yuri.png) and
-[the attack](docs/screenshots/the-attack.png).
-
-## Documentation
-
-- [docs/building.md](docs/building.md): building by hand, Linux, macOS, Wine, the command line, the lifted C
-- [docs/RECON.md](docs/RECON.md): the binaries, the build and the class map
-- [docs/host.md](docs/host.md): the host, headless DirectDraw, registration-free COM
-- [docs/presenter.md](docs/presenter.md): the presenter window, scaling, the virtual screen
-- [docs/hires.md](docs/hires.md): high resolution and widescreen, and the 4K sidebar fix
-- [docs/voxels.md](docs/voxels.md): the voxel renderer, mapped, and HD voxels
-- [docs/bringup.md](docs/bringup.md): every wall so far and its fix
-- [docs/testing.md](docs/testing.md): the playtest suite, scripted input, the `--original` oracle and the LAN game
-- [ROADMAP.md](ROADMAP.md), [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## Contributors
-
-See **[CONTRIBUTORS.md](CONTRIBUTORS.md)** for who did what. Thank you, all of
-you.
-
-## License
-
-MIT for this repository's own code ([LICENSE](LICENSE)). Red Alert 2 and
-Yuri's Revenge are © Electronic Arts; none of their files, and nothing
-generated from them, is in this repository ([NOTICE.md](NOTICE.md)).
+The game host and recompilation pipeline are by **sp00nz** and contributors:
+[redalert2-recomp](https://github.com/sp00nznet/redalert2-recomp) and
+[pcrecomp](https://github.com/sp00nznet/pcrecomp).
+This fork retains their MIT license and notices. See [LICENSE](LICENSE),
+[NOTICE](NOTICE), and [toolkit provenance](third_party/pcrecomp-source.json).
+Command & Conquer / Red Alert 2 / Yuri's Revenge belong to EA / Westwood.

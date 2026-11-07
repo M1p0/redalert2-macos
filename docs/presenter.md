@@ -127,6 +127,43 @@ A `--scale` or `--fullscreen` on the command line wins over the file.
   `VK_LBUTTON` as well as the messages, and a click has to agree whether it
   came from a mouse, a pen or a test driver.
 
+## Native display timing
+
+On the native macOS and Linux hosts, F10's **Display refresh** selects the
+presentation ceiling independently of the game's speed. Automatic follows
+the display holding the window; 60, 120, 144 and 240 Hz are also available.
+The choice is saved as `[present] refresh_hz` (`0` means automatic). A built
+host keeps it in `ra2.ini` beside the executable; a packaged Mac app uses
+`~/Library/Application Support/Red Alert 2 Recomp/ra2-present.ini` (or
+`yr-present.ini`). Fullscreen is remembered too; Option+Return, F11 and
+Control+Command+F toggle it on a Mac.
+
+The display uses fractional deadlines from SDL's performance counter. It
+does not wait for vertical blank on the game's thread, change its timers,
+or adjust `GameSpeed`. Only changed source frames are presented, apart from
+occasional redraws of an idle window. This removes the old 15 ms display
+ceiling; it does not interpolate units or make a 15 fps movie contain new
+frames. Animation can still be limited by the original engine's logic rate.
+
+`--present-hz 0|HZ` overrides the setting for a run. `--timing-stats` logs
+actual presentations and the original game-frame counter per second
+separately, so display refresh is not mistaken for simulation speed.
+
+The native F10 menu also offers **Right mouse button → Original / Drag map**.
+Drag map pans by the pointer's displacement, rather than continuing to scroll
+while the button is held away from its starting point. The terrain follows
+the pointer: drag left to move it left, or up to move it up. A stationary pointer
+or a released button adds no movement. A short right-click keeps its original
+action. The sidebar and menus keep their original input. The choice takes
+effect immediately and is saved as `right_mouse=original|drag` beside the
+presentation settings. Drag map is the default for this native build.
+
+The host feeds pixel distances to the original `DisplayClass` scroll routine
+(`0x00499B60` in RA2, `0x004A9840` in YR); the engine applies its usual map
+boundaries. It does not change unit orders, selection, game speed or clocks.
+The native `--rdrag` test goes through the same gesture handler and logs the
+camera before movement, during a stationary hold and after release.
+
 ## Testing it
 
 `tools\present_drive.ps1` clicks the presenter window the way a player does,

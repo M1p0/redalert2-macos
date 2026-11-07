@@ -2,7 +2,7 @@
  * menu.c - F10, the settings menu: the Windows presenter's (src/runtime/
  * present.c, settings_menu), drawn by win32hle over the picture
  * (hle_screen_menu). Scaling, the bars, fullscreen and HD vehicles take
- * effect at once and are remembered in ra2.ini; the game's resolution is for
+ * effect at once and are remembered in the presentation preferences; the game's resolution is for
  * the next game; a mod restarts the program with it.
  *
  * Not here: Controls (Classic / Modern). Modern controls live in the Windows
@@ -22,13 +22,16 @@
 #include "resolutions.h"
 #include "hdvox.h"
 #include "mods.h"
+#include "mapdrag.h"
 
 #define MAX_MENU_MODS 64
-enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_DISPLAY = 499, ID_HDVOX = 500, ID_MOD = 600 };
+enum { ID_SCALE = 100, ID_BARS = 200, ID_FULL = 300, ID_RES = 400, ID_DISPLAY = 499, ID_HDVOX = 500, ID_MOD = 600, ID_REFRESH = 700, ID_DRAG = 800 };
 
 static const char *const k_scale[] = { "sharp", "smooth", "crt", "nearest", "integer" };
 static const char *const k_scale_label[] = { "Sharp (default)", "Smooth", "CRT", "Nearest", "Integer" };
-static hle_menu_item_t g_main[8], g_scale[5], g_bars[2], g_hd[4], g_res[NRES + 1], g_mods[MAX_MENU_MODS + 1];
+static hle_menu_item_t g_main[10], g_scale[5], g_bars[2], g_hd[4], g_res[NRES + 1], g_mods[MAX_MENU_MODS + 1], g_refresh[5], g_drag[2];
+static const int k_refresh[] = { 0, 60, 120, 144, 240 };
+static const char *const k_refresh_label[] = { "Display refresh (automatic)", "60 Hz", "120 Hz", "144 Hz", "240 Hz" };
 static char g_res_label[NRES + 1][40], g_mod_names[MAX_MENU_MODS][128];
 static int g_nmods, g_display_w, g_display_h;
 static void (*g_save)(void);
@@ -103,6 +106,8 @@ static void chosen(int id) {
     if (id >= ID_SCALE && id < ID_SCALE + 5) hle_screen_scale(k_scale[id - ID_SCALE]);
     else if (id == ID_BARS || id == ID_BARS + 1) hle_screen_bars(id - ID_BARS);
     else if (id == ID_FULL) { int full; hle_screen_settings(NULL, &full); hle_screen_fullscreen(!full); return; }   /* saves, as F11 */
+    else if (id >= ID_REFRESH && id < ID_REFRESH + 5) hle_screen_refresh_hz(k_refresh[id - ID_REFRESH]);
+    else if (id == ID_DRAG || id == ID_DRAG + 1) ra2_mapdrag_set(id - ID_DRAG);
     else if (id >= ID_HDVOX && id <= ID_HDVOX + 3) {              /* Off / 2x / 3x / 1x smooth, next frame */
         if (id == ID_HDVOX) ra2_vox_hd_show = 0;
         else if (id == ID_HDVOX + 3) { ra2_vox_set_scale(2); ra2_vox_aa = 1; ra2_vox_hd_show = 1; }
@@ -114,9 +119,47 @@ static void chosen(int id) {
     if (g_save) g_save();
 }
 
+static void localize_menu(hle_menu_item_t *items, int n) {
+    static const struct { const char *en, *zh; } labels[] = {
+        { "Scaling", "\u753b\u9762\u7f29\u653e" },
+        { "Bars beside the picture", "\u8fb9\u6761\u80cc\u666f" },
+        { "Fullscreen", "\u5168\u5c4f" },
+        { "Display refresh", "\u663e\u793a\u5237\u65b0\u7387" },
+        { "Right mouse button", "\u53f3\u952e\u64cd\u4f5c" },
+        { "HD vehicles (voxels)", "\u9ad8\u6e05\u8f7d\u5177" },
+        { "Game resolution (next battle)", "\u5bf9\u5c40\u5206\u8fa8\u7387\uff08\u4e0b\u5c40\u751f\u6548\uff09" },
+        { "Mod (restarts the game)", "\u6a21\u7ec4\uff08\u91cd\u542f\u6e38\u620f\uff09" },
+        { "Original", "\u539f\u7248" },
+        { "Drag map", "\u62d6\u62fd\u5730\u56fe" },
+        { "Sharp (default)", "\u6e05\u6670\uff08\u9ed8\u8ba4\uff09" },
+        { "Smooth", "\u5e73\u6ed1" },
+        { "CRT", "\u663e\u50cf\u7ba1\u6548\u679c" },
+        { "Nearest", "\u90bb\u8fd1\u50cf\u7d20" },
+        { "Integer", "\u6574\u6570\u500d\u7f29\u653e" },
+        { "Blurred", "\u6a21\u7cca\u80cc\u666f" },
+        { "Black", "\u9ed1\u8272" },
+        { "Off", "\u5173\u95ed" },
+        { "On, 2x", "\u5f00\u542f\uff0c2 \u500d" },
+        { "On, 3x (sharper, slower)", "\u5f00\u542f\uff0c3 \u500d\uff08\u66f4\u6e05\u6670\uff09" },
+        { "On, 1x smooth (antialiased)", "\u5f00\u542f\uff0c\u539f\u5c3a\u5bf8\u6297\u952f\u9f7f" },
+        { "Display refresh (automatic)", "\u8ddf\u968f\u663e\u793a\u5668\uff08\u81ea\u52a8\uff09" },
+        { "None (the game as it shipped)", "\u65e0\uff08\u539f\u7248\u6e38\u620f\uff09" },
+        { "(put mods in the mods folder: mods/README.md)", "\uff08\u5c1a\u672a\u5b89\u88c5\u6a21\u7ec4\uff09" },
+    };
+    for (int i = 0; i < n; i++) {
+        if (items[i].label) for (unsigned j = 0; j < sizeof labels / sizeof labels[0]; j++)
+            if (!strcmp(items[i].label, labels[j].en)) { items[i].label = labels[j].zh; break; }
+        if (items[i].sub) localize_menu((hle_menu_item_t *)items[i].sub, items[i].nsub);
+    }
+}
+
 static void open_menu(void) {
     int bars, full, n = 0, nm = 0;
     const char *scale = hle_screen_settings(&bars, &full);
+    g_drag[0] = (hle_menu_item_t){ "Original", NULL, ID_DRAG, !ra2_mapdrag_enabled(), NULL, 0 };
+    g_drag[1] = (hle_menu_item_t){ "Drag map", NULL, ID_DRAG + 1, ra2_mapdrag_enabled(), NULL, 0 };
+    for (int i = 0; i < 5; i++) g_refresh[i] = (hle_menu_item_t){ k_refresh_label[i], NULL, ID_REFRESH + i,
+        hle_screen_refresh_setting() == k_refresh[i], NULL, 0 };
     for (int i = 0; i < 5; i++) g_scale[i] = (hle_menu_item_t){ k_scale_label[i], NULL, ID_SCALE + i, !strcmp(scale, k_scale[i]), NULL, 0 };
     g_bars[0] = (hle_menu_item_t){ "Blurred", NULL, ID_BARS + 1, bars, NULL, 0 };
     g_bars[1] = (hle_menu_item_t){ "Black", NULL, ID_BARS, !bars, NULL, 0 };
@@ -150,10 +193,14 @@ static void open_menu(void) {
     g_main[n++] = (hle_menu_item_t){ "Scaling", "F12", 0, 0, g_scale, 5 };
     g_main[n++] = (hle_menu_item_t){ "Bars beside the picture", NULL, 0, 0, g_bars, 2 };
     g_main[n++] = (hle_menu_item_t){ "Fullscreen", "F11", ID_FULL, full, NULL, 0 };
+    g_main[n++] = (hle_menu_item_t){ "Display refresh", NULL, 0, 0, g_refresh, 5 };
+    g_main[n++] = (hle_menu_item_t){ "Right mouse button", NULL, 0, 0, g_drag, 2 };
     g_main[n++] = (hle_menu_item_t){ "HD vehicles (voxels)", NULL, 0, 0, g_hd, 4 };
     g_main[n++] = (hle_menu_item_t){ NULL, NULL, 0, 0, NULL, 0 };
     g_main[n++] = (hle_menu_item_t){ "Game resolution (next battle)", NULL, 0, 0, g_res, nr };
     g_main[n++] = (hle_menu_item_t){ "Mod (restarts the game)", NULL, 0, 0, g_mods, nm };
+    const char *language = getenv("RA2_UI_LANGUAGE");
+    if (language && !strncmp(language, "zh", 2)) localize_menu(g_main, n);
     hle_screen_menu(g_main, n, chosen);
 }
 

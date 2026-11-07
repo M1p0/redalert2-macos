@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "win32hle.h"
+#include "mapdrag.h"
 
 #define WM_COMMAND     0x0111u
 #define WM_HSCROLL     0x0114u
@@ -370,6 +371,32 @@ static void *script(void *unused) {
             uint32_t down = right ? WM_RBUTTONDOWN : WM_LBUTTONDOWN, up = right ? WM_RBUTTONUP : WM_LBUTTONUP;
             uint32_t mk = right ? MK_RBUTTON : MK_LBUTTON, vk = right ? 2 : 1;   /* VK_RBUTTON, VK_LBUTTON */
             fprintf(stderr, "[input] %.1fs %sdrag %d,%d to %d,%d\n", e->t, right ? "right " : "", e->x, e->y, x2, y2);
+            if (right && ra2_mapdrag_enabled()) {
+                int before_x, before_y, moved_x, moved_y, held_x, held_y, after_x, after_y;
+                mach_enter();
+                ra2_mapdrag_position(&before_x, &before_y);
+                int consumed = ra2_mapdrag_input(down, e->x, e->y);
+                mach_leave();
+                if (!consumed) goto original_drag;       /* sidebar/menu: pass through as the real input does */
+                for (int k = 1; k <= 10; k++) {
+                    int x = e->x + (x2 - e->x) * k / 10, y = e->y + (y2 - e->y) * k / 10;
+                    mach_enter(); ra2_mapdrag_input(WM_MOUSEMOVE, x, y); mach_leave();
+                    sleep_ms(60);
+                }
+                sleep_ms(200);                 /* allow the engine to apply its camera queue */
+                mach_enter(); ra2_mapdrag_position(&moved_x, &moved_y); mach_leave();
+                sleep_ms(1000);                /* holding still must not continue to pan */
+                mach_enter();
+                ra2_mapdrag_position(&held_x, &held_y);
+                ra2_mapdrag_input(up, x2, y2);
+                mach_leave();
+                sleep_ms(200);
+                mach_enter(); ra2_mapdrag_position(&after_x, &after_y); mach_leave();
+                fprintf(stderr, "[mapdrag-test] input %d,%d consumed %d camera %d,%d -> %d,%d held %d,%d released %d,%d\n",
+                        x2 - e->x, y2 - e->y, consumed, before_x, before_y, moved_x, moved_y, held_x, held_y, after_x, after_y);
+                continue;
+            }
+original_drag:
             cursor(e->x, e->y);
             post(h, WM_MOUSEMOVE, 0, lp_of(e->x, e->y));
             sleep_ms(100);

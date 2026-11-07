@@ -32,6 +32,7 @@
 #include "pe_loader.h"
 #include "host.h"
 #include "recomp_target.h"
+#include "mapdrag.h"
 
 extern const uint32_t ra2_entry_va;   /* recomp_dispatch.c */
 
@@ -41,6 +42,7 @@ static int g_debuglog, g_headless, g_fullscreen = -1;   /* -1: as ra2.ini says *
 static const char *g_scale;
 static const char *g_mod;              /* --mod NAME */
 static unsigned g_watchdog_s;
+static int g_timing_stats, g_present_hz_arg = -1, g_right_mouse_arg = -1;
 unsigned ra2_clip_rounds;              /* the line clipper's round cap (run_lift.py clip_line_patches) */
 
 /* ---- what the lift calls into ---------------------------------------------
@@ -327,6 +329,102 @@ static int menus_use_windows_cursor(void) {
     return !game_draws_cursor;
 }
 
+/* The engine's Scroll_Map (DisplayClass slot 41) queues pixel distances in
+ * TacticalClass +D74/+D78; the normal camera update applies map boundaries.
+ * These are the same calls the original right-drag path makes. No clock,
+ * simulation state or order is changed. Both builds pass their PE-stamp check
+ * before the game runs (run_lift.py targets). */
+#ifdef RA2_TARGET_GAME
+#define MAP_SCROLL_VA 0x00499B60u
+#define TACTICAL_PTR 0x0083996Cu
+#define MAP_VIEW_RECT 0x00839630u
+#else
+#define MAP_SCROLL_VA 0x004A9840u
+#define TACTICAL_PTR 0x00887324u
+#define MAP_VIEW_RECT 0x00886FA0u
+#endif
+static int g_mapdrag = 1, g_drag_held, g_drag_moved, g_drag_eat_up, g_drag_x, g_drag_y, g_drag_last_x, g_drag_last_y;
+static int g_drag_dx, g_drag_dy;
+void ra2_mapdrag_set(int enabled) {
+    g_mapdrag = enabled != 0;
+    if (g_drag_held) g_drag_eat_up = 1;
+    g_drag_held = g_drag_moved = g_drag_dx = g_drag_dy = 0;
+}
+int ra2_mapdrag_enabled(void) { return g_mapdrag; }
+void ra2_mapdrag_position(int *x, int *y) {
+    uint32_t tactical = MEM32(TACTICAL_PTR);
+    *x = tactical ? (int)MEM32(tactical + 0xD64) : 0;
+    *y = tactical ? (int)MEM32(tactical + 0xD68) : 0;
+}
+int ra2_mapdrag_input(unsigned m, int x, int y) {
+    if (m == 0x001Fu) { ra2_mapdrag_set(g_mapdrag); return 0; } /* cancel on focus/menu changes */
+    if (m == 0x0205u && g_drag_eat_up) { g_drag_eat_up = 0; return 1; }
+    if (!g_mapdrag) return 0;
+    if (m == 0x0204u) {                              /* right down, only over the battlefield */
+        uint32_t tactical = MEM32(TACTICAL_PTR);
+        if (menus_use_windows_cursor() || !tactical) return 0;
+        /* DSurface::ViewBounds, also used by ScrollClass's ClientToScreen
+         * path. TacticalClass's similarly named rectangle is in map space. */
+        int l = (int)MEM32(MAP_VIEW_RECT), t = (int)MEM32(MAP_VIEW_RECT + 4);
+        int w = (int)MEM32(MAP_VIEW_RECT + 8), h = (int)MEM32(MAP_VIEW_RECT + 12);
+        if (w <= 0 || h <= 0 || x < l || y < t || x >= l + w || y >= t + h) return 0;
+        g_drag_held = 1, g_drag_moved = g_drag_eat_up = 0;
+        g_drag_x = g_drag_last_x = x, g_drag_y = g_drag_last_y = y;
+        return 1;
+    }
+    if (!g_drag_held || (m != 0x0200u && m != 0x0205u)) return 0;
+    if (menus_use_windows_cursor()) { ra2_mapdrag_set(g_mapdrag); return 0; }
+    if (!g_drag_moved && (abs(x - g_drag_x) >= 4 || abs(y - g_drag_y) >= 4)) g_drag_moved = 1;
+    if (g_drag_moved) {
+        /* Terrain follows the pointer, so the camera moves the other way.
+         * A stationary held button contributes zero, regardless of game FPS. */
+        g_drag_dx += g_drag_last_x - x, g_drag_dy += g_drag_last_y - y;
+        g_drag_last_x = x, g_drag_last_y = y;
+    }
+    hle_input_cursor(x, y);
+    if (m == 0x0205u) {
+        if (!g_drag_moved) {                          /* a short click still cancels/orders normally */
+            hle_input_mouse(0x0204u, g_drag_x, g_drag_y);
+            hle_input_mouse(0x0205u, x, y);
+        }
+        g_drag_held = 0;
+    }
+    return 1;
+}
+static void mapdrag_pump(void) {
+    int dx = g_drag_dx, dy = g_drag_dy;
+    g_drag_dx = g_drag_dy = 0;
+    if ((!dx && !dy) || menus_use_windows_cursor()) return;
+    static uint32_t distance;
+    if (!distance) distance = hle_va(hle_alloc(4));
+    if (!distance) return;
+    if (dx) {
+        MEM32(distance) = (uint32_t)abs(dx);
+        hle_call_guest(MAP_SCROLL_VA, 3, (uint32_t[]){ dx < 0 ? 6u : 2u, distance, 1 });
+    }
+    if (dy) {
+        MEM32(distance) = (uint32_t)abs(dy);
+        hle_call_guest(MAP_SCROLL_VA, 3, (uint32_t[]){ dy < 0 ? 0u : 4u, distance, 1 });
+    }
+}
+
+static void timing_stats(void) {
+    static uint64_t since, shown;
+    static uint32_t frame;
+    if (!g_timing_stats) return;
+    uint64_t now = SDL_GetPerformanceCounter(), count = hle_screen_present_count();
+    uint32_t current = MEM32(RA2_GAME_FRAME_VA);
+    if (!since || current < frame) { since = now; shown = count; frame = current; return; }
+    double seconds = (double)(now - since) / (double)SDL_GetPerformanceFrequency();
+    if (seconds < 5.0) return;
+    int full;
+    hle_screen_settings(NULL, &full);
+    fprintf(stderr, "[timing] present %.2f Hz, logic %.2f Hz, game frame %u, target %d Hz, fullscreen %d\n",
+            (double)(count - shown) / seconds, (double)(current - frame) / seconds,
+            current, hle_screen_refresh_target(), full);
+    since = now; shown = count; frame = current;
+}
+
 /* Without a recording, the same checksum lines at the same rate, from the
  * pump; and --dump-frames writes those frames as BMPs. */
 static void frame_pump(void) {
@@ -337,6 +435,8 @@ static void frame_pump(void) {
     const uint32_t *pal;
     int w, h, pitch, bpp;
     hle_screen_pump();
+    mapdrag_pump();
+    timing_stats();
     uint32_t now = hle_ticks_ms();
     /* Headless with HD voxels: the presenter's 2x picture at its pace, thrown
      * away, so hdvox.c counts any with the units at 1x (playtest hd-scroll). */
@@ -366,6 +466,24 @@ static void frame_pump(void) {
 static char g_ini[PATH_MAX];
 static void ini_path(void) {
     if (!hle_exe_path(g_ini, sizeof g_ini - 8)) { g_ini[0] = 0; return; }
+#ifdef __APPLE__
+    /* A packaged app is executable code, not a writable preferences folder.
+     * Keep normal settings changes outside it, including fullscreen toggles. */
+    if (strstr(g_ini, ".app/Contents/MacOS/")) {
+        const char *home = getenv("HOME");
+        if (!home) { g_ini[0] = 0; return; }
+        char support[PATH_MAX];
+        int n = snprintf(support, sizeof support, "%s/Library/Application Support/Red Alert 2 Recomp", home);
+        if (n < 0 || (size_t)n >= sizeof support) { g_ini[0] = 0; return; }
+        mkdir(support, 0700);
+#ifdef RA2_TARGET_GAME
+        snprintf(g_ini, sizeof g_ini, "%s/ra2-present.ini", support);
+#else
+        snprintf(g_ini, sizeof g_ini, "%s/yr-present.ini", support);
+#endif
+        return;
+    }
+#endif
     char *slash = strrchr(g_ini, '/');
     strcpy(slash ? slash + 1 : g_ini, "ra2.ini");
 }
@@ -385,6 +503,8 @@ static void settings_load(char *scale, size_t n, int *bars, int *full) {
         else if (!strcasecmp(line, "scale")) snprintf(scale, n, "%s", eq + 1);
         else if (!strcasecmp(line, "bars")) *bars = strcasecmp(eq + 1, "black") != 0;
         else if (!strcasecmp(line, "fullscreen")) *full = atoi(eq + 1);
+        else if (!strcasecmp(line, "refresh_hz")) hle_screen_refresh_hz(atoi(eq + 1));
+        else if (!strcasecmp(line, "right_mouse")) ra2_mapdrag_set(!strcasecmp(eq + 1, "drag"));
         else if (!strcasecmp(line, "hdvoxels")) {         /* 0 off, 2 or 3 the scale; legacy 1 = 2x */
             int v = atoi(eq + 1);
             g_saved_hd = v == 1 ? 2 : v;
@@ -398,6 +518,8 @@ static void settings_save(const char *scale, int bars, int full) {
     FILE *f = g_ini[0] ? fopen(g_ini, "w") : NULL;
     if (!f) return;
     fprintf(f, "[present]\nscale=%s\nbars=%s\nfullscreen=%d\n", scale, bars ? "blur" : "black", full);
+    fprintf(f, "refresh_hz=%d\n", hle_screen_refresh_setting());
+    fprintf(f, "right_mouse=%s\n", ra2_mapdrag_enabled() ? "drag" : "original");
     if (ra2_vox_hd_on) fprintf(f, "hdvoxels=%d\n", ra2_vox_hd_show ? ra2_vox_scale() : 0);
     fprintf(f, "[mods]\nactive=%s\n", mods_active());
     fclose(f);
@@ -453,6 +575,21 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--run")) run = 1;
         else if (!strcmp(argv[i], "--headless")) g_headless = 1;
         else if (!strcmp(argv[i], "--fullscreen")) g_fullscreen = 1;
+        else if (!strcmp(argv[i], "--timing-stats")) g_timing_stats = 1;
+        else if (!strcmp(argv[i], "--right-mouse") && i + 1 < argc) {
+            const char *mode = argv[++i];
+            if (strcmp(mode, "original") && strcmp(mode, "drag")) {
+                fprintf(stderr, "--right-mouse needs original or drag\n"); return 2;
+            }
+            g_right_mouse_arg = !strcmp(mode, "drag");
+            ra2_mapdrag_set(g_right_mouse_arg);
+        }
+        else if (!strcmp(argv[i], "--present-hz") && i + 1 < argc) {
+            char *end;
+            long hz = strtol(argv[++i], &end, 10);
+            if (*end || hz < 0 || hz > 1000) { fprintf(stderr, "--present-hz needs 0 (display) or 1..1000\n"); return 2; }
+            g_present_hz_arg = (int)hz;
+        }
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) g_scale = argv[++i];
         else if (!strcmp(argv[i], "--debuglog")) g_debuglog = 1;
         else if (!strcmp(argv[i], "--mute")) hle_dsound_set_master(0.0f);
@@ -484,7 +621,7 @@ int main(int argc, char **argv) {
             g_dump_dir = dir;                /* the run chdirs into the game folder */
         }
         else {
-            printf("usage: ra2 [--run] [--headless | --fullscreen] [--scale sharp|smooth|crt|nearest|integer] [--game DIR] [--mod NAME|none] [--debuglog] [--mute] [--watchdog S] [--trace] [--dump-frames DIR] [--record out.mp4] [--frames N] [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR]\n"
+            printf("usage: ra2 [--run] [--headless | --fullscreen] [--present-hz 0|HZ] [--timing-stats] [--scale sharp|smooth|crt|nearest|integer] [--game DIR] [--mod NAME|none] [--debuglog] [--mute] [--watchdog S] [--trace] [--dump-frames DIR] [--record out.mp4] [--frames N] [--hd-voxels] [--hd-scale 2|3] [--hd-voxels-dump DIR]\n"
                    "           [--press DLG:CTRL@s] [--select DLG:CTRL=N@s] [--waitlog TEXT@s] [--move|--click x,y@s]\n"
                    "           [--key [c][s][a]+vk@s] [--wait VA@s] [--drag x1,y1,x2,y2@s]\n");
             return !strcmp(argv[i], "--help") || !strcmp(argv[i], "-h") ? 0 : 1;
@@ -548,6 +685,8 @@ int main(int argc, char **argv) {
         int bars = 1, full = 0;
         ini_path();
         settings_load(scale, sizeof scale, &bars, &full);
+        if (g_right_mouse_arg >= 0) ra2_mapdrag_set(g_right_mouse_arg);
+        if (g_present_hz_arg >= 0) hle_screen_refresh_hz(g_present_hz_arg);
         snprintf(g_saved_scale, sizeof g_saved_scale, "%s", scale);
         g_saved_bars = bars, g_saved_full = full;
         if (g_scale) snprintf(scale, sizeof scale, "%s", g_scale);
@@ -556,6 +695,7 @@ int main(int argc, char **argv) {
         hle_screen_bars(bars);
         hle_screen_settings_hook = settings_save;
         hle_screen_cursor_hook = menus_use_windows_cursor;
+        hle_screen_mouse_hook = ra2_mapdrag_input;
         if (hle_screen_open(RA2_TITLE, full, g_headless) != 0) return 1;
         mods_start(game_full, g_mod, g_saved_mod, argc, argv, settings_save_mod);
         /* In a window, HD vehicles are F10's to switch, off unless ra2.ini or

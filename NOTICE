@@ -1,0 +1,22 @@
+This macOS fork is based on redalert2-recomp by sp00nz:
+https://github.com/sp00nznet/redalert2-recomp
+Base revision: 4ecdea4dd12729696d5fe0a4296c49202695bc3e
+License: MIT (LICENSE).
+
+third_party/pcrecomp contains a source snapshot of pcrecomp by sp00nz with
+local display timing, mouse hook and native menu font changes:
+https://github.com/sp00nznet/pcrecomp
+Base revision: 2adc02fec0702933325801aa7b29a7646321857f
+License: MIT (third_party/pcrecomp/LICENSE).
+Its additional third-party notices are preserved in
+third_party/pcrecomp/NOTICE and third_party/pcrecomp/LICENSES/.
+
+Optional Simplified Chinese inputs are downloaded separately from:
+https://github.com/Translate-with-LOVE/Ra2-zh_hans-main
+Revision: f09640b65b8540c2cf3fe779ee2cc0e0a4fc15f2
+Those translations, fonts and artwork are not included in this repository
+and are not relicensed under this repository's MIT license.
+
+Command & Conquer: Red Alert 2 and Yuri's Revenge are EA / Westwood games.
+Retail game files and locally generated recompilation output are not
+distributed here. Players must supply their own compatible copy.

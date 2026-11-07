@@ -1,0 +1,16 @@
+{
+  "source": "https://github.com/sp00nznet/pcrecomp",
+  "revision": "2adc02fec0702933325801aa7b29a7646321857f",
+  "license": "MIT",
+  "local_changes": [
+    "runtime/win32hle/screen.c",
+    "runtime/win32hle/win32hle.h",
+    "runtime/win32hle/frame_pacer.h",
+    "runtime/win32hle/frame_pacer_selftest.c",
+    "runtime/win32hle/README.md"
+  ],
+  "formatting_only": [
+    "tools/lift/lift32_cpu.py",
+    "tools/ne/win16.py"
+  ]
+}

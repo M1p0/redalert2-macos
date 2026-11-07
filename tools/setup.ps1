@@ -18,6 +18,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 # put it), else ../pcrecomp is cloned.
 $Parent = Split-Path -Parent $Root
 $Toolkit = if ($env:PCRECOMP) { $env:PCRECOMP }
+  elseif (Test-Path (Join-Path $Root 'third_party\pcrecomp\runtime\native32')) { Join-Path $Root 'third_party\pcrecomp' }
   elseif (-not (Test-Path (Join-Path $Parent 'pcrecomp')) -and (Test-Path (Join-Path $Parent 'tools\runtime\native32'))) { Join-Path $Parent 'tools' }
   else { Join-Path $Parent 'pcrecomp' }
 $T = Join-Path $Toolkit 'tools'

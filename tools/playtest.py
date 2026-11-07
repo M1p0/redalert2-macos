@@ -281,6 +281,13 @@ case('movies-sneakpeeks', S().press(MAIN, 'MoviesAndCredits', MOVIES).press(MOVI
 INGAME = 'Capture_Mouse'
 case('skirmish-start', SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
      .waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10), 180, ingame=True)
+if NATIVE:
+    pan = SP().press(SINGLE, 'Skirmish', SKIRMISH).press(SKIRMISH, 'StartGame')
+    pan.waitlog(INGAME).move(236, 240, after=2).key('0x48', after=10)
+    pan.rdrag(236, 240, 176, 240).rdrag(176, 240, 236, 240)
+    pan.rdrag(236, 240, 236, 195).rdrag(236, 195, 236, 240)
+    pan.args += ['--right-mouse', 'drag']
+    case('skirmish-mapdrag', pan, 70, ingame=True, mapdrag=4)
 # A third player picked with the mouse, through the skirmish screen's own
 # drop-down list (the third row's arrow, then its "Easy Enemy"): the list has
 # to open with room for its items, and close. The native host only (--uclick),
@@ -489,6 +496,17 @@ def run(name, args, seconds, expect, every, original=False):
         seen.append('%sx%s' % modes[-1])
     if expect.get('alive') and defeated:
         bad.append('the human player was defeated')
+    if expect.get('mapdrag'):
+        pans = re.findall(r'\[mapdrag-test\] input (-?\d+),(-?\d+) consumed (\d+) camera (-?\d+),(-?\d+) -> (-?\d+),(-?\d+) held (-?\d+),(-?\d+) released (-?\d+),(-?\d+)', text)
+        if len(pans) != expect['mapdrag']:
+            bad.append('map drag: %d gestures, wanted %d' % (len(pans), expect['mapdrag']))
+        for p in pans:
+            dx, dy, consumed, x0, y0, x1, y1, xh, yh, xr, yr = map(int, p)
+            if not consumed or (x1 - x0, y1 - y0) != (-dx, -dy):
+                bad.append('map drag moved %d,%d for input %d,%d' % (x1 - x0, y1 - y0, dx, dy))
+            if (x1, y1) != (xh, yh) or (x1, y1) != (xr, yr):
+                bad.append('map drag continued while stationary or after release')
+        seen.append('map drag: %d gestures' % len(pans))
     # hd: the units at 2x in every picture, and most of their pixels (a 2x
     # layer that never matched would count no flicker at all)
     if expect.get('hd'):

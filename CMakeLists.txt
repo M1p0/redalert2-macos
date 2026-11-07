@@ -20,8 +20,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-# ../pcrecomp, or ../tools where older setups put it
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/../pcrecomp" AND EXISTS "${CMAKE_SOURCE_DIR}/../tools/runtime")
+# The fork carries its matching toolkit; an explicit -DPCRECOMP still wins.
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/pcrecomp/runtime")
+  set(PCRECOMP "${CMAKE_SOURCE_DIR}/third_party/pcrecomp" CACHE PATH "pcrecomp checkout")
+elseif(NOT EXISTS "${CMAKE_SOURCE_DIR}/../pcrecomp" AND EXISTS "${CMAKE_SOURCE_DIR}/../tools/runtime")
   set(PCRECOMP "${CMAKE_SOURCE_DIR}/../tools" CACHE PATH "pcrecomp checkout")
 else()
   set(PCRECOMP "${CMAKE_SOURCE_DIR}/../pcrecomp" CACHE PATH "pcrecomp checkout")

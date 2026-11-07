@@ -1,0 +1,17 @@
+name: source checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell scripts
+        run: bash -n setup.sh build-macos.sh build-linux.sh build.sh
+      - name: Check localization tooling
+        run: python3 -m unittest discover -s tools/tests -p test_install_zh_hans.py
+      - name: Check display deadlines
+        run: |
+          cc -std=c11 -O2 -I third_party/pcrecomp/runtime/recomp32 -I third_party/pcrecomp/runtime/win32hle third_party/pcrecomp/runtime/win32hle/frame_pacer_selftest.c -o "$RUNNER_TEMP/frame_pacer_selftest"
+          "$RUNNER_TEMP/frame_pacer_selftest"

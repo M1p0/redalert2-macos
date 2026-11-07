@@ -1,6 +1,6 @@
 {
   "title": "Red Alert 2 & Yuri's Revenge",
-  "repo": "sp00nznet/redalert2-recomp",
+  "repo": "M1p0/redalert2-macos",
   "accent": "#d0342c",
   "note": {
     "windows": "The first build takes 30 to 60 minutes and about 6 GB. Python, CMake, Ninja and the Visual Studio Build Tools (about 3 GB) are installed if they are missing; Windows asks for permission once.",
@@ -13,7 +13,7 @@
     "steam": "Command & Conquer Red Alert II",
     "registry": ["HKLM\\SOFTWARE\\WOW6432Node\\EA Games\\Command and Conquer Red Alert II\\Install Dir"]
   },
-  "sources": [{ "repo": "sp00nznet/pcrecomp", "ref": "main", "dir": "pcrecomp" }],
+  "sources": [],
   "setup": {
     "windows": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools\\setup.ps1", "-Yes", "-Game", "{game}"],
     "default": ["bash", "setup.sh", "--yes", "--game-dir", "{game}"]

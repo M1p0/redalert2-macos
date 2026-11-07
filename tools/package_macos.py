@@ -8,12 +8,12 @@ libraries inside, for people who did not build it.
 Makes dist/<Title>.app and a zip of it beside a README. The app holds no game
 data: on first launch it asks for the player's own game folder (the one with
 gamemd.exe or game.exe) and remembers it in ~/Library/Application Support.
-The host's ra2.ini and mods/ live inside the bundle (Contents/MacOS/ra2.ini,
-Contents/mods/), as they live beside the build on a checkout.
+The packaged host keeps display preferences in ~/Library/Application Support/
+Red Alert 2 Recomp (ra2-present.ini or yr-present.ini); mods live in
+Contents/mods/. A checkout still keeps ra2.ini beside the built host.
 
 Only the Mach-Os are (ad-hoc) signed, as Apple Silicon requires to run them;
-the bundle is not sealed, so the settings inside it may change without
-macOS calling the app damaged. It is not notarized: Gatekeeper asks
+the bundle is not sealed. It is not notarized: Gatekeeper asks
 for a right-click > Open (or Privacy & Security > Open Anyway) the first time,
 and a freshly downloaded copy must be moved with Finder once before it runs
 from a writable place (App Translocation). The Homebrew libraries carry the
@@ -132,7 +132,7 @@ def min_macos(paths):
 
 
 def pe_icon(exe_path):
-    """The largest icon in the exe's resources, as 32-bit RGBA rows, or None."""
+    """The largest icon: PNG bytes, 32-bit RGBA bitmap rows, or None."""
     try:
         import pefile
     except ImportError:
@@ -155,6 +155,10 @@ def pe_icon(exe_path):
                 best = (key, icons[iid])
     if not best:
         return None
+    # Vista-era RT_ICON resources can contain a whole PNG, rather than an
+    # icon DIB. The Steam release's 256-pixel icons use this representation.
+    if best[1].startswith(b"\x89PNG\r\n\x1a\n"):
+        return best[1]
     return dib_to_rgba(best[1])
 
 
@@ -211,12 +215,21 @@ def write_png(path, w, h, rows):
 def make_icns(rgba, out_icns, work):
     """An .icns from one small image, scaled up pixel for pixel (nearest
     neighbour): the game's icon is 32x32 and looks right crisp."""
-    w, h, rows = rgba
     iconset = os.path.join(work, "app.iconset")
     shutil.rmtree(iconset, ignore_errors=True)
     os.makedirs(iconset)
+    png = isinstance(rgba, bytes)
+    if png:
+        source = os.path.join(work, "icon-source.png")
+        with open(source, "wb") as f:
+            f.write(rgba)
+    else:
+        w, h, rows = rgba
     for size, name in [(16, "16x16"), (32, "16x16@2x"), (32, "32x32"), (64, "32x32@2x"), (128, "128x128"),
                        (256, "128x128@2x"), (256, "256x256"), (512, "256x256@2x"), (512, "512x512"), (1024, "512x512@2x")]:
+        if png:
+            run("sips", "-z", str(size), str(size), source, "--out", os.path.join(iconset, f"icon_{name}.png"))
+            continue
         big = []
         for y in range(size):
             src = rows[y * h // size]
@@ -267,6 +280,19 @@ if ! has_exe "$GAME"; then
     done
     printf '%s' "$GAME" > "$CONF"
 fi
+
+# The optional localization installer writes this provenance marker. Keep an
+# explicit language/font override, and use a system CJK font for the F10 menu.
+if [ -z "${RA2_UI_LANGUAGE:-}" ] && [ -f "$GAME/Localization/zh-Hans-source.json" ]; then
+    export RA2_UI_LANGUAGE=zh-Hans
+fi
+case "${RA2_UI_LANGUAGE:-}" in zh*)
+    if [ -z "${HLE_MENU_FONT:-}" ]; then
+        for font in "/System/Library/Fonts/Supplemental/Arial Unicode.ttf" "/System/Library/Fonts/STHeiti Light.ttc"; do
+            if [ -f "$font" ]; then export HLE_MENU_FONT="$font"; break; fi
+        done
+    fi ;;
+esac
 
 # Arguments from Finder (none nowadays) are dropped; from a terminal they pass through.
 ARGS=""
